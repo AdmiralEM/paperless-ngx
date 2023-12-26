@@ -1277,6 +1277,9 @@ class WorkflowTriggerSerializer(serializers.ModelSerializer):
             "filter_path",
             "filter_filename",
             "filter_mailrule",
+            "filter_has_tags",
+            "filter_has_correspondent",
+            "filter_has_document_type",
         ]
 
     def validate(self, attrs):
