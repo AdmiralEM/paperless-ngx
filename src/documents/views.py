@@ -116,6 +116,7 @@ from documents.serialisers import UiSettingsViewSerializer
 from documents.serialisers import WorkflowActionSerializer
 from documents.serialisers import WorkflowSerializer
 from documents.serialisers import WorkflowTriggerSerializer
+from documents.signals.handlers import run_workflow_updated
 from documents.tasks import consume_file
 from paperless import version
 from paperless.db import GnuPG
@@ -324,6 +325,9 @@ class DocumentViewSet(
         from documents import index
 
         index.add_or_update_document(self.get_object())
+
+        run_workflow_updated(None, self.get_object())
+
         return response
 
     def destroy(self, request, *args, **kwargs):
