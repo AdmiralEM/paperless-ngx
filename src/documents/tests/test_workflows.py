@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 from unittest import TestCase
 from unittest import mock
@@ -5,18 +6,21 @@ from unittest import mock
 import pytest
 from django.contrib.auth.models import Group
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from documents import tasks
 from documents.data_models import ConsumableDocument
 from documents.data_models import DocumentSource
 from documents.models import Correspondent
 from documents.models import CustomField
+from documents.models import Document
 from documents.models import DocumentType
 from documents.models import StoragePath
 from documents.models import Tag
 from documents.models import Workflow
 from documents.models import WorkflowAction
 from documents.models import WorkflowTrigger
+from documents.signals import document_consumption_finished
 from documents.tests.utils import DirectoriesMixin
 from documents.tests.utils import FileSystemAssertsMixin
 from paperless_mail.models import MailAccount
@@ -565,3 +569,52 @@ class TestWorkflows(DirectoriesMixin, FileSystemAssertsMixin, TestCase):
         self.assertIn(expected_str, cm.output[0])
         expected_str = f"Document source {DocumentSource.ApiUpload.name} not in ['{DocumentSource.ConsumeFolder.name}', '{DocumentSource.MailFetch.name}']"
         self.assertIn(expected_str, cm.output[1])
+
+    def test_document_added_workflow(self):
+        trigger = WorkflowTrigger.objects.create(
+            type=WorkflowTrigger.WorkflowTriggerType.DOCUMENT_ADDED,
+            sources=f"{DocumentSource.ApiUpload},{DocumentSource.ConsumeFolder},{DocumentSource.MailFetch}",
+            filter_filename="*sample*",
+        )
+        action = WorkflowAction.objects.create(
+            assign_title="Doc created in {created_year}",
+            assign_correspondent=self.c2,
+            assign_document_type=self.dt,
+            assign_storage_path=self.sp,
+            assign_owner=self.user2,
+        )
+        action.assign_tags.add(self.t1)
+        action.assign_tags.add(self.t2)
+        action.assign_tags.add(self.t3)
+        action.assign_view_users.add(self.user3.pk)
+        action.assign_view_groups.add(self.group1.pk)
+        action.assign_change_users.add(self.user3.pk)
+        action.assign_change_groups.add(self.group1.pk)
+        action.assign_custom_fields.add(self.cf1.pk)
+        action.assign_custom_fields.add(self.cf2.pk)
+        action.save()
+        w = Workflow.objects.create(
+            name="Workflow 1",
+            order=0,
+        )
+        w.triggers.add(trigger)
+        w.actions.add(action)
+        w.save()
+
+        now = timezone.localtime(timezone.now())
+        created = now - timedelta(weeks=520)
+        doc = Document.objects.create(
+            title="sample test",
+            correspondent=self.c,
+            original_filename="sample.pdf",
+            added=now,
+            created=created,
+        )
+
+        document_consumption_finished.send(
+            sender=self.__class__,
+            document=doc,
+        )
+
+        self.assertEqual(doc.correspondent, self.c2)
+        self.assertEqual(doc.title, f"Doc created in {created.year}")
